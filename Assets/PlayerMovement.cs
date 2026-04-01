@@ -6,13 +6,23 @@ public class PlayerMovement : MonoBehaviour
 
     private Rigidbody2D rb;
     private Animator animator;
+    private SpriteRenderer sr;
     private Vector2 movement;
     private string currentAnim = "";
 
+    // Y-sorting: jugador en pasillo (Y≈2.5) → order=75
+    // Cara frontal norte tiene order=48 → jugador (75) queda ENCIMA ✓
+    // Jugador cerca de pared norte (Y≈6) → order=40 → pared (48) queda ENCIMA ✓
+    const float SORT_SCALE = 10f;
+    const int   SORT_BASE  = 300;
+
     void Start()
     {
-        rb = GetComponent<Rigidbody2D>();
+        rb       = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
+        sr       = GetComponent<SpriteRenderer>();
+        if (sr == null)
+            sr = GetComponentInChildren<SpriteRenderer>();
     }
 
     void Update()
@@ -22,6 +32,14 @@ public class PlayerMovement : MonoBehaviour
         movement = movement.normalized;
 
         ActualizarAnimacion();
+        ActualizarSorting();
+    }
+
+    // Más abajo en pantalla (Y menor) = más al FRENTE = sorting mayor
+    void ActualizarSorting()
+    {
+        if (sr == null) return;
+        sr.sortingOrder = SORT_BASE + Mathf.RoundToInt(-transform.position.y * SORT_SCALE);
     }
 
     void ActualizarAnimacion()
@@ -30,18 +48,12 @@ public class PlayerMovement : MonoBehaviour
 
         if (movement.magnitude > 0.1f)
         {
-            // Prioridad: horizontal sobre vertical
             if (Mathf.Abs(movement.x) >= Mathf.Abs(movement.y))
-            {
                 nuevaAnim = movement.x > 0 ? "WalkRight" : "WalkLeft";
-            }
             else
-            {
                 nuevaAnim = movement.y > 0 ? "WalkUp" : "WalkDown";
-            }
         }
 
-        // Solo cambia si es diferente para evitar interrupciones
         if (nuevaAnim != currentAnim)
         {
             currentAnim = nuevaAnim;
