@@ -1,46 +1,76 @@
 using UnityEngine;
 
 /// <summary>
-/// Hace que la cámara siga a Shelby suavemente dentro del edificio.
-/// Arrastra este script a la Main Camera de la escena Edificio.
+/// Cámara que sigue al jugador de cerca en X e Y,
+/// sin mostrar bordes negros fuera del escenario.
 /// </summary>
+[RequireComponent(typeof(Camera))]
 public class CameraFollow : MonoBehaviour
 {
     [Header("Target")]
-    public Transform objetivo;          // Arrastra aquí a Shelby
+    public Transform objetivo;
 
     [Header("Seguimiento")]
     public float velocidadSeguimiento = 5f;
-    public Vector2 limiteMin = new Vector2(-35f, -10f);  // límite inferior-izquierdo
-    public Vector2 limiteMax = new Vector2(48f, 16f);    // límite superior-derecho
 
-    private Vector3 offset;
+    [Header("Zoom — qué tan cerca sigue al personaje")]
+    [Tooltip("Más pequeño = más zoom/cerca. Recomendado: 10 a 14")]
+    public float orthographicSize = 12f;
+
+    // Límites físicos del escenario — actualizados para SAL_W=20, SAL_H=18
+    private const float MAP_MIN_X = -81f;
+    private const float MAP_MAX_X =  81f;
+    private const float MAP_MIN_Y = -28f;
+    private const float MAP_MAX_Y =  28f;
+
+    private Camera _cam;
 
     void Start()
     {
-        // Si no se asignó manualmente, busca al jugador
+        _cam = GetComponent<Camera>();
+        _cam.orthographic     = true;
+        _cam.orthographicSize = orthographicSize;
+
         if (objetivo == null)
         {
             GameObject jugador = GameObject.FindGameObjectWithTag("Player");
-            if (jugador != null)
-                objetivo = jugador.transform;
+            if (jugador != null) objetivo = jugador.transform;
         }
-
-        offset = new Vector3(0, 0, -10f); // mantiene Z en -10
     }
 
     void LateUpdate()
     {
         if (objetivo == null) return;
 
-        // Posición deseada
-        Vector3 posDeseada = objetivo.position + offset;
+        float camH = _cam.orthographicSize;
+        float camW = _cam.orthographicSize * _cam.aspect;
 
-        // Clamp dentro de los límites del mapa
-        posDeseada.x = Mathf.Clamp(posDeseada.x, limiteMin.x, limiteMax.x);
-        posDeseada.y = Mathf.Clamp(posDeseada.y, limiteMin.y, limiteMax.y);
+        float desX = objetivo.position.x;
+        float desY = objetivo.position.y;
 
-        // Interpolación suave
-        transform.position = Vector3.Lerp(transform.position, posDeseada, velocidadSeguimiento * Time.deltaTime);
+        float minX = MAP_MIN_X + camW;
+        float maxX = MAP_MAX_X - camW;
+        float minY = MAP_MIN_Y + camH;
+        float maxY = MAP_MAX_Y - camH;
+
+        desX = (minX < maxX) ? Mathf.Clamp(desX, minX, maxX) : (MAP_MIN_X + MAP_MAX_X) / 2f;
+        desY = (minY < maxY) ? Mathf.Clamp(desY, minY, maxY) : (MAP_MIN_Y + MAP_MAX_Y) / 2f;
+
+        Vector3 posDeseada = new Vector3(desX, desY, -10f);
+
+        transform.position = Vector3.Lerp(
+            transform.position,
+            posDeseada,
+            velocidadSeguimiento * Time.deltaTime
+        );
+    }
+
+    void OnDrawGizmosSelected()
+    {
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawWireCube(
+            new Vector3((MAP_MIN_X + MAP_MAX_X) / 2f, (MAP_MIN_Y + MAP_MAX_Y) / 2f, 0),
+            new Vector3(MAP_MAX_X - MAP_MIN_X, MAP_MAX_Y - MAP_MIN_Y, 0)
+        );
     }
 }
