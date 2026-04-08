@@ -2,67 +2,50 @@ using UnityEngine;
 using System.Collections.Generic;
 
 // ══════════════════════════════════════════════════════
-//  EL VIDEOJUEGOS  v1
-//  Patrulla normal (más light que Stanis/Pelón).
-//  Cada X segundos (random entre valores fijos) entra
-//  en MODO DESESPERADO 20 seg: revisa pasillo + salones
-//  con visión y velocidad máxima. Luego regresa a normal.
+//  EL VIDEOJUEGOS  v4
+//  FIXES:
+//  - Jugador ya no se duplica/copia movimientos del NPC
+//  - Arrastre durante YendoAEncerrar usa Rigidbody2D del jugador
+//  - Encierro fija al jugador via su Rigidbody2D (no transform directo)
+//  - Colisiones: velocidad máxima reducida en pasillos, 
+//    Continuous Collision Detection se fuerza por código
 // ══════════════════════════════════════════════════════
 public class ElVideojuegos : MonoBehaviour
 {
-    // ─────────────────────────────────────────
-    //  RUTINA NORMAL
-    // ─────────────────────────────────────────
     [Header("Rutina normal")]
     public float tiempoMinEnSalon = 15f;
     public float tiempoMaxEnSalon = 25f;
 
-    // ─────────────────────────────────────────
-    //  VISIÓN NORMAL (más light)
-    // ─────────────────────────────────────────
     [Header("Visión normal")]
     [Range(60f, 180f)]
-    public float anguloNormal   = 100f;
-    public float alcanceNormal  = 5f;
-    public float alcanceSalon   = 8f;
+    public float anguloNormal   = 110f;
+    public float alcanceNormal  = 6f;
+    public float alcanceSalon   = 9f;
 
-    // ─────────────────────────────────────────
-    //  VISIÓN DESESPERADA
-    // ─────────────────────────────────────────
     [Header("Visión desesperada")]
     [Range(120f, 359f)]
-    public float anguloDeses    = 270f;   // mucho mayor que Stanis
+    public float anguloDeses    = 270f;
     public float alcanceDeses   = 14f;
     public float alcanceSalonD  = 16f;
 
-    // ─────────────────────────────────────────
-    //  VELOCIDADES
-    // ─────────────────────────────────────────
     [Header("Movimiento")]
-    public float velCaminata      = 2f;    // más light que Stanis
+    public float velCaminata      = 2f;
     public float velPersecucion   = 3.5f;
-    public float velDesesperada   = 5.5f;  // más que Stanis
+    public float velDesesperada   = 5.5f;
     public float distanciaLlegada = 0.5f;
 
-    // ─────────────────────────────────────────
-    //  MODO DESESPERADO
-    // ─────────────────────────────────────────
     [Header("Modo desesperado")]
     public float duracionDeses = 20f;
-    // Posibles tiempos de espera antes del siguiente modo desesperado
     private float[] tiemposEspera = { 7f, 10f, 15f, 20f, 30f };
 
-    // ─────────────────────────────────────────
-    //  CASTIGO
-    // ─────────────────────────────────────────
     [Header("Castigo")]
-    public int   castigo        = 20;
-    public float tiempoEncierro = 10f;
-    public string tagJugador    = "Player";
+    public int   castigo           = 20;
+    public float tiempoEncierro    = 15f;
+    public float tiempoSlowdown    = 60f;
+    public float factorSlowdown    = 0.35f;
+    public string tagJugador       = "Player";
 
-    // ─────────────────────────────────────────
-    //  CONSTANTES EDIFICIO (igual que Pelón)
-    // ─────────────────────────────────────────
+    // Constantes edificio
     const float SAL_W         = 20f;
     const float xIzq          = -81f;
     const float Y_NORTE       =  18f;
@@ -72,13 +55,8 @@ public class ElVideojuegos : MonoBehaviour
     const float Y_PASILLO     =   0f;
     const float OFFSET_PUERTA =  0.5f;
 
-    // ─────────────────────────────────────────
-    //  ESTADOS
-    // ─────────────────────────────────────────
-    enum Estado { Esperando, Ruta, Persiguiendo, Buscando, Desesperado, Atrapado }
+    enum Estado { Esperando, Ruta, Persiguiendo, Buscando, Desesperado, YendoAEncerrar, Atrapado }
     Estado estadoActual = Estado.Esperando;
-
-    // Antes del modo desesperado guardamos el estado para volver
     Estado estadoAntesDeses = Estado.Esperando;
 
     struct PuntoSalon { public Vector2 centro; public Vector2 puerta; }
@@ -91,25 +69,22 @@ public class ElVideojuegos : MonoBehaviour
     float timerSalon    = 0f;
     float duracionSalon = 0f;
 
-    // Timer modo desesperado
-    float timerProxDeses  = 0f;  // cuenta hasta disparar el modo
-    float timerDuraDeses  = 0f;  // cuenta los 20 seg activos
-    float proxDesesTiempo = 0f;  // valor elegido al azar
+    float timerProxDeses  = 0f;
+    float timerDuraDeses  = 0f;
+    float proxDesesTiempo = 0f;
 
-    // Ruta
     Queue<Vector2> rutaActual = new Queue<Vector2>();
 
-    // Búsqueda normal / desesperada
     Vector2       ultimoPuntoConocido;
+    bool          tienePuntoConocido = false;
     List<Vector2> puntosBusqueda   = new List<Vector2>();
     int           indiceBusqueda   = 0;
     float         timerEspera      = 0f;
     bool          esperandoEnPunto = false;
 
-    // Búsqueda desesperada por salones
     List<(int idx, bool norte)> salonesARevisar = new List<(int, bool)>();
     int indiceSalonDeses = 0;
-    bool revisandoPasillo = false; // primero pasillo, luego salones
+    bool faseInicialDeses = true;
 
     Vector2 destinoActual   = Vector2.zero;
     float   speedActual     = 0f;
@@ -118,6 +93,10 @@ public class ElVideojuegos : MonoBehaviour
     bool    enPasillo       = false;
 
     float timerEncierroActual = 0f;
+    bool  jugadorFijoEnSalon  = false;
+
+    // Offset de arrastre (posición del jugador relativa al NPC)
+    Vector2 offsetArrastre = new Vector2(1.2f, 0f);
 
     string animActual = "";
 
@@ -125,10 +104,9 @@ public class ElVideojuegos : MonoBehaviour
     SpriteRenderer sr;
     Animator       animator;
     Transform      jugador;
+    Rigidbody2D    rbJugador;       // cacheado una vez
+    PlayerMovement pmJugador;       // cacheado una vez
 
-    // ─────────────────────────────────────────
-    //  START
-    // ─────────────────────────────────────────
     void Start()
     {
         rb       = GetComponent<Rigidbody2D>();
@@ -137,8 +115,31 @@ public class ElVideojuegos : MonoBehaviour
         if (sr == null)       sr       = GetComponentInChildren<SpriteRenderer>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
 
+        // FIX colisiones: forzar detección continua en el NPC
+        if (rb != null)
+        {
+            rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+            rb.interpolation          = RigidbodyInterpolation2D.Interpolate;
+        }
+
         GameObject goJ = GameObject.FindGameObjectWithTag(tagJugador);
-        if (goJ != null) jugador = goJ.transform;
+        if (goJ != null)
+        {
+            jugador    = goJ.transform;
+            rbJugador  = goJ.GetComponent<Rigidbody2D>();
+            pmJugador  = goJ.GetComponent<PlayerMovement>();
+            Debug.Log("NPC encontró jugador: " + goJ.name); 
+
+            // FIX colisiones: también continuo en el jugador
+            if (rbJugador != null)
+            {
+                rbJugador.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+                rbJugador.interpolation          = RigidbodyInterpolation2D.Interpolate;
+            }
+        }else{
+                Debug.LogError("NPC NO encontró ningún objeto con tag: " + tagJugador); // Y ESTA
+
+        }
 
         for (int i = 0; i < 8; i++)
         {
@@ -156,25 +157,25 @@ public class ElVideojuegos : MonoBehaviour
         }
 
         ElegirSalonInicial();
-        ElegirProximoDeses(); // primer timer desesperado
+        ElegirProximoDeses();
     }
 
-    // Elige al azar uno de los tiempos fijos para el próximo modo
     void ElegirProximoDeses()
     {
         proxDesesTiempo = tiemposEspera[Random.Range(0, tiemposEspera.Length)];
         timerProxDeses  = 0f;
     }
 
-    // ─────────────────────────────────────────
-    //  UPDATE
-    // ─────────────────────────────────────────
     void Update()
     {
         enPasillo = Mathf.Abs(transform.position.y) < 8.5f;
 
-        // ── Tick del timer desesperado (solo cuando NO está ya desesperado ni atrapado)
-        if (estadoActual != Estado.Desesperado && estadoActual != Estado.Atrapado)
+        if (jugador != null)
+            ultimoPuntoConocido = jugador.position;
+
+        if (estadoActual != Estado.Desesperado &&
+            estadoActual != Estado.YendoAEncerrar &&
+            estadoActual != Estado.Atrapado)
         {
             timerProxDeses += Time.deltaTime;
             if (timerProxDeses >= proxDesesTiempo)
@@ -187,25 +188,23 @@ public class ElVideojuegos : MonoBehaviour
                 LogicaEspera();
                 if (JugadorDetectado()) IniciarPersecucion();
                 break;
-
             case Estado.Ruta:
                 LogicaRuta();
                 if (JugadorDetectado()) IniciarPersecucion();
                 break;
-
             case Estado.Persiguiendo:
                 LogicaPersecucion();
                 break;
-
             case Estado.Buscando:
                 LogicaBusqueda();
                 if (JugadorDetectado()) IniciarPersecucion();
                 break;
-
             case Estado.Desesperado:
                 LogicaDesesperado();
                 break;
-
+            case Estado.YendoAEncerrar:
+                LogicaYendoAEncerrar();
+                break;
             case Estado.Atrapado:
                 LogicaEncierro();
                 break;
@@ -219,73 +218,69 @@ public class ElVideojuegos : MonoBehaviour
     // ─────────────────────────────────────────
     void IniciarModoDesesperado()
     {
-        estadoAntesDeses  = estadoActual;
-        estadoActual      = Estado.Desesperado;
-        timerDuraDeses    = 0f;
+        estadoAntesDeses = estadoActual;
+        estadoActual     = Estado.Desesperado;
+        timerDuraDeses   = 0f;
         rutaActual.Clear();
 
         MusicaManager.Instancia?.IniciarPersecucion();
 
-        // Armar lista de salones a revisar (todos excepto salón 4)
-        salonesARevisar.Clear();
         var todos = SalonesValidos();
-        // Shuffle simple
         for (int i = todos.Count - 1; i > 0; i--)
         {
             int j = Random.Range(0, i + 1);
             var tmp = todos[i]; todos[i] = todos[j]; todos[j] = tmp;
         }
-        salonesARevisar = todos;
+        salonesARevisar  = todos;
         indiceSalonDeses = 0;
-        revisandoPasillo = true;
 
-        // Primero va al pasillo
-        SetDestino(new Vector2(transform.position.x, Y_PASILLO), velDesesperada);
+        faseInicialDeses = true;
+        SetDestino(ultimoPuntoConocido, velDesesperada);
     }
 
     void LogicaDesesperado()
     {
         timerDuraDeses += Time.deltaTime;
 
-        // Detección con visión desesperada
         if (JugadorDetectadoDeses())
         {
             IniciarPersecucionDeses();
             return;
         }
 
-        // Tiempo agotado → volver a normal
         if (timerDuraDeses >= duracionDeses)
         {
             TerminarModoDesesperado();
             return;
         }
 
-        // Navegación: pasillo → salones
-        if (moviendose && Vector2.Distance(rb.position, destinoActual) > distanciaLlegada)
-            return; // en camino
-
-        // Llegó al punto actual
-        if (revisandoPasillo)
+        if (faseInicialDeses)
         {
-            // Recorre el pasillo de izq a der y der a izq rápido
-            // Pasamos a revisar salones
-            revisandoPasillo = false;
-            IrSiguienteSalonDeses();
+            if (jugador != null)
+                SetDestino(jugador.position, velDesesperada);
+
+            if (Vector2.Distance(rb.position, ultimoPuntoConocido) <= distanciaLlegada * 2f)
+            {
+                faseInicialDeses = false;
+                indiceSalonDeses = 0;
+                IrSiguienteSalonDeses();
+            }
+            return;
+        }
+
+        if (moviendose && Vector2.Distance(rb.position, destinoActual) > distanciaLlegada)
+            return;
+
+        indiceSalonDeses++;
+        if (indiceSalonDeses >= salonesARevisar.Count)
+        {
+            faseInicialDeses = true;
+            SetDestino(ultimoPuntoConocido, velDesesperada);
+            indiceSalonDeses = 0;
         }
         else
         {
-            indiceSalonDeses++;
-            if (indiceSalonDeses >= salonesARevisar.Count)
-            {
-                // Ya revisó todo, vuelve al pasillo y repite si queda tiempo
-                revisandoPasillo = true;
-                SetDestino(new Vector2(transform.position.x, Y_PASILLO), velDesesperada);
-            }
-            else
-            {
-                IrSiguienteSalonDeses();
-            }
+            IrSiguienteSalonDeses();
         }
     }
 
@@ -301,7 +296,6 @@ public class ElVideojuegos : MonoBehaviour
 
     void IniciarPersecucionDeses()
     {
-        // Persigue desde modo desesperado (con velocidad desesperada)
         estadoActual = Estado.Persiguiendo;
         rutaActual.Clear();
         MusicaManager.Instancia?.IniciarPersecucion();
@@ -311,8 +305,6 @@ public class ElVideojuegos : MonoBehaviour
     {
         MusicaManager.Instancia?.TerminarPersecucion();
         ElegirProximoDeses();
-
-        // Volver al salón más cercano y retomar rutina
         TerminarEnSalonCercano();
     }
 
@@ -323,30 +315,27 @@ public class ElVideojuegos : MonoBehaviour
     {
         if (jugador == null) return false;
         if (enPasillo) return JugadorEnCono(anguloNormal, alcanceNormal);
-        return JugadorEnMiSalon(alcanceSalon);
+        return JugadorEnSalon(alcanceSalon);
     }
 
     bool JugadorDetectadoDeses()
     {
         if (jugador == null) return false;
-        // En modo desesperado la visión es enorme en cualquier lugar
         Vector2 diff = (Vector2)jugador.position - rb.position;
         if (diff.magnitude > alcanceDeses) return false;
         float a = Vector2.Angle(direccionActual, diff.normalized);
         return a <= anguloDeses / 2f;
     }
 
-    bool JugadorEnMiSalon(float alcance)
+    bool JugadorEnSalon(float alcance)
     {
-        if (jugador == null || enPasillo) return false;
+        if (jugador == null) return false;
         if (Vector2.Distance(rb.position, jugador.position) > alcance) return false;
         bool jugadorEnPasillo = Mathf.Abs(jugador.position.y) < 8.5f;
         if (jugadorEnPasillo) return false;
-        bool peloEnNorte = transform.position.y > 0f;
-        bool jugEnNorte  = jugador.position.y  > 0f;
-        if (peloEnNorte != jugEnNorte) return false;
-        float miX  = salonNorte ? salonesNorte[salonIdx].centro.x : salonesSur[salonIdx].centro.x;
-        return Mathf.Abs(jugador.position.x - miX) < SAL_W / 2f - 0.5f;
+        bool npcEnNorte = transform.position.y > 0f;
+        bool jugEnNorte = jugador.position.y  > 0f;
+        return npcEnNorte == jugEnNorte;
     }
 
     bool JugadorEnCono(float angulo, float alcance)
@@ -395,13 +384,17 @@ public class ElVideojuegos : MonoBehaviour
         var validos = SalonesValidos();
         validos.RemoveAll(v => v.idx == salonIdx && v.norte == salonNorte);
         var dest = validos[Random.Range(0, validos.Count)];
+        IrASalon(dest.idx, dest.norte, velCaminata, false);
+    }
 
+    void IrASalon(int destIdx, bool destNorte, float velocidad, bool esCaptura)
+    {
         Vector2 puertaOrigen   = salonNorte ? salonesNorte[salonIdx].puerta : salonesSur[salonIdx].puerta;
         Vector2 pasilloOrigen  = new Vector2(puertaOrigen.x, Y_PASILLO);
-        Vector2 centroDestino  = dest.norte ? salonesNorte[dest.idx].centro : salonesSur[dest.idx].centro;
-        Vector2 puertaDestino  = dest.norte ? salonesNorte[dest.idx].puerta : salonesSur[dest.idx].puerta;
+        Vector2 centroDestino  = destNorte ? salonesNorte[destIdx].centro : salonesSur[destIdx].centro;
+        Vector2 puertaDestino  = destNorte ? salonesNorte[destIdx].puerta : salonesSur[destIdx].puerta;
         Vector2 pasilloDestino = new Vector2(puertaDestino.x, Y_PASILLO);
-        Vector2 entradaDestino = dest.norte
+        Vector2 entradaDestino = destNorte
             ? new Vector2(puertaDestino.x, Y_DIV_N - OFFSET_PUERTA)
             : new Vector2(puertaDestino.x, Y_DIV_S + OFFSET_PUERTA);
 
@@ -412,17 +405,25 @@ public class ElVideojuegos : MonoBehaviour
         rutaActual.Enqueue(entradaDestino);
         rutaActual.Enqueue(centroDestino);
 
-        salonIdx   = dest.idx;
-        salonNorte = dest.norte;
+        salonIdx   = destIdx;
+        salonNorte = destNorte;
 
-        estadoActual = Estado.Ruta;
+        speedActual  = velocidad;
+        estadoActual = esCaptura ? Estado.YendoAEncerrar : Estado.Ruta;
         AvanzarRuta();
     }
 
     void AvanzarRuta()
     {
-        if (rutaActual.Count == 0) { IniciarEspera(); return; }
-        SetDestino(rutaActual.Dequeue(), velCaminata);
+        if (rutaActual.Count == 0)
+        {
+            if (estadoActual == Estado.YendoAEncerrar)
+                IniciarEncierro();
+            else
+                IniciarEspera();
+            return;
+        }
+        SetDestino(rutaActual.Dequeue(), speedActual);
     }
 
     void LogicaRuta()
@@ -448,7 +449,6 @@ public class ElVideojuegos : MonoBehaviour
     {
         if (jugador == null) return;
 
-        // Velocidad según si venía de modo desesperado
         float velUsar = (timerDuraDeses > 0f && timerDuraDeses < duracionDeses)
             ? velDesesperada
             : velPersecucion;
@@ -534,61 +534,140 @@ public class ElVideojuegos : MonoBehaviour
     }
 
     // ─────────────────────────────────────────
-    //  ATRAPAR
+    //  ATRAPAR → iniciar viaje al salón
     // ─────────────────────────────────────────
     void Atrapar()
     {
-        estadoActual          = Estado.Atrapado;
-        moviendose            = false;
-        timerEncierroActual   = 0f;
-        timerDuraDeses        = 0f; // reset modo desesperado
-
         MusicaManager.Instancia?.TerminarPersecucion();
+        timerDuraDeses = 0f;
 
-        if (jugador != null)
+        // FIX: deshabilitar PlayerMovement Y congelar el rb del jugador
+        if (pmJugador != null) pmJugador.enabled = false;
+        if (rbJugador != null)
         {
-            PlayerMovement pm = jugador.GetComponent<PlayerMovement>();
-            if (pm != null) pm.enabled = false;
-
-            Rigidbody2D rbJ = jugador.GetComponent<Rigidbody2D>();
-            if (rbJ != null) rbJ.linearVelocity = Vector2.zero;
-
-            Vector2 centroSalon = salonNorte ? salonesNorte[salonIdx].centro : salonesSur[salonIdx].centro;
-            jugador.position = new Vector3(centroSalon.x + 1.5f, centroSalon.y, 0f);
+            rbJugador.linearVelocity = Vector2.zero;
+            rbJugador.bodyType       = RigidbodyType2D.Kinematic; // evita que física lo mueva
         }
 
         GameManager gm = FindObjectOfType<GameManager>();
         if (gm != null) gm.AplicarCastigo(castigo);
 
         if (rb != null) rb.linearVelocity = Vector2.zero;
-        ActualizarAnimacion(Vector2.zero);
+
+        // Calcular offset de arrastre (lado derecho o izquierdo según dirección)
+        offsetArrastre = new Vector2(direccionActual.x >= 0 ? 1.2f : -1.2f, 0f);
+
+        // Elegir salón más cercano
+        float menorD = float.MaxValue;
+        int   salidx = salonIdx;
+        bool  salNrt = salonNorte;
+        for (int i = 0; i < 8; i++)
+        {
+            if (i == 4) continue;
+            float dN = Vector2.Distance(rb.position, salonesNorte[i].centro);
+            float dS = Vector2.Distance(rb.position, salonesSur[i].centro);
+            if (dN < menorD) { menorD = dN; salidx = i; salNrt = true; }
+            if (dS < menorD) { menorD = dS; salidx = i; salNrt = false; }
+        }
+
+        IrASalon(salidx, salNrt, velPersecucion, true);
+    }
+
+    // ─────────────────────────────────────────
+    //  YENDO AL SALÓN A ENCERRAR
+    //  FIX: arrastre via MovePosition del rb del jugador,
+    //       nunca via transform.position directo
+    // ─────────────────────────────────────────
+    void LogicaYendoAEncerrar()
+    {
+        // El arrastre real se hace en FixedUpdate para respetar física
+        if (Vector2.Distance(rb.position, destinoActual) < distanciaLlegada)
+        {
+            if (rutaActual.Count > 0)
+                AvanzarRuta();
+            else
+                IniciarEncierro();
+        }
     }
 
     // ─────────────────────────────────────────
     //  ENCIERRO
     // ─────────────────────────────────────────
+    void IniciarEncierro()
+    {
+        estadoActual        = Estado.Atrapado;
+        moviendose          = false;
+        timerEncierroActual = 0f;
+        jugadorFijoEnSalon  = true;
+
+        if (rb != null) rb.linearVelocity = Vector2.zero;
+        ActualizarAnimacion(Vector2.zero);
+
+        // Colocar jugador via Rigidbody2D, no transform
+        Vector2 centroSalon = salonNorte ? salonesNorte[salonIdx].centro : salonesSur[salonIdx].centro;
+        Vector2 posJugador  = centroSalon + new Vector2(1.5f, 0f);
+        if (rbJugador != null)
+        {
+            rbJugador.MovePosition(posJugador);
+            rbJugador.linearVelocity = Vector2.zero;
+        }
+        else if (jugador != null)
+        {
+            jugador.position = new Vector3(posJugador.x, posJugador.y, 0f);
+        }
+    }
+
     void LogicaEncierro()
     {
         moviendose = false;
         ActualizarAnimacion(Vector2.zero);
         timerEncierroActual += Time.deltaTime;
 
-        if (jugador != null)
-        {
-            Vector2 centroSalon = salonNorte ? salonesNorte[salonIdx].centro : salonesSur[salonIdx].centro;
-            if (Vector2.Distance(jugador.position, centroSalon + new Vector2(1.5f, 0f)) > 1.2f)
-                jugador.position = new Vector3(centroSalon.x + 1.5f, centroSalon.y, 0f);
-        }
-
+        // Fin del encierro: soltar jugador con slowdown
         if (timerEncierroActual >= tiempoEncierro)
         {
-            if (jugador != null)
+            jugadorFijoEnSalon = false;
+
+            // Restaurar tipo de cuerpo del jugador
+            if (rbJugador != null)
+                rbJugador.bodyType = RigidbodyType2D.Dynamic;
+
+            if (pmJugador != null)
             {
-                PlayerMovement pm = jugador.GetComponent<PlayerMovement>();
-                if (pm != null) pm.enabled = true;
+                pmJugador.enabled = true;
+                pmJugador.AplicarSlowdown(factorSlowdown, tiempoSlowdown);
             }
+
             ElegirProximoDeses();
-            IniciarEspera();
+            ElegirSiguienteSalonYRuta();
+        }
+    }
+
+    // ─────────────────────────────────────────
+    //  FIXED UPDATE
+    //  FIX: arrastre del jugador aquí, junto al movimiento del NPC
+    // ─────────────────────────────────────────
+    void FixedUpdate()
+    {
+        // Mover NPC
+        if (moviendose && rb != null)
+            rb.MovePosition(Vector2.MoveTowards(rb.position, destinoActual, speedActual * Time.fixedDeltaTime));
+
+        // Arrastrar jugador mientras va al salón
+        if (estadoActual == Estado.YendoAEncerrar && rbJugador != null)
+        {
+            Vector2 destJugador = rb.position + offsetArrastre;
+            rbJugador.MovePosition(Vector2.MoveTowards(rbJugador.position, destJugador, speedActual * Time.fixedDeltaTime));
+            rbJugador.linearVelocity = Vector2.zero;
+        }
+
+        // Mantener jugador fijo durante el encierro
+        if (estadoActual == Estado.Atrapado && jugadorFijoEnSalon && rbJugador != null)
+        {
+            Vector2 centroSalon = salonNorte ? salonesNorte[salonIdx].centro : salonesSur[salonIdx].centro;
+            Vector2 posJugador  = centroSalon + new Vector2(1.5f, 0f);
+            rbJugador.MovePosition(posJugador);
+            rbJugador.linearVelocity = Vector2.zero;
         }
     }
 
@@ -599,9 +678,7 @@ public class ElVideojuegos : MonoBehaviour
     {
         var lista = new List<(int, bool)>();
         for (int i = 0; i < 8; i++)
-        {
             if (i != 4) { lista.Add((i, true)); lista.Add((i, false)); }
-        }
         return lista;
     }
 
@@ -614,19 +691,13 @@ public class ElVideojuegos : MonoBehaviour
         if (dir.magnitude > 0.01f) { direccionActual = dir; ActualizarAnimacion(dir); }
     }
 
-    void FixedUpdate()
-    {
-        if (!moviendose || rb == null) return;
-        rb.MovePosition(Vector2.MoveTowards(rb.position, destinoActual, speedActual * Time.fixedDeltaTime));
-    }
-
     void ActualizarAnimacion(Vector2 dir)
     {
         if (animator == null) return;
         string nueva;
-        if (dir.magnitude < 0.01f) nueva = "Idle";
-        else if (Mathf.Abs(dir.x) >= Mathf.Abs(dir.y)) nueva = dir.x > 0 ? "WalkRight" : "WalkLeft";
-        else nueva = dir.y > 0 ? "WalkUp" : "WalkDown";
+        if (dir.magnitude < 0.01f) nueva = "Idleq";
+        else if (Mathf.Abs(dir.x) >= Mathf.Abs(dir.y)) nueva = dir.x > 0 ? "WalkRightr" : "WalkLeftt";
+        else nueva = dir.y > 0 ? "WalkUpw" : "WalkDowne";
 
         if (nueva != animActual) { animActual = nueva; animator.Play(nueva); }
     }
@@ -636,9 +707,6 @@ public class ElVideojuegos : MonoBehaviour
         if (sr != null) sr.sortingOrder = 300 + Mathf.RoundToInt(-transform.position.y * 10f);
     }
 
-    // ─────────────────────────────────────────
-    //  GIZMOS
-    // ─────────────────────────────────────────
     void OnDrawGizmos()
     {
         bool deses = Application.isPlaying && estadoActual == Estado.Desesperado;

@@ -10,9 +10,11 @@ public class PlayerMovement : MonoBehaviour
     private Vector2 movement;
     private string currentAnim = "";
 
-    // Y-sorting: jugador en pasillo (Y≈2.5) → order=75
-    // Cara frontal norte tiene order=48 → jugador (75) queda ENCIMA ✓
-    // Jugador cerca de pared norte (Y≈6) → order=40 → pared (48) queda ENCIMA ✓
+    // Slowdown post-encierro
+    private float moveSpeedBase  = 0f;
+    private float timerSlowdown  = 0f;
+    private bool  enSlowdown     = false;
+
     const float SORT_SCALE = 10f;
     const int   SORT_BASE  = 300;
 
@@ -23,19 +25,47 @@ public class PlayerMovement : MonoBehaviour
         sr       = GetComponent<SpriteRenderer>();
         if (sr == null)
             sr = GetComponentInChildren<SpriteRenderer>();
+
+        moveSpeedBase = moveSpeed;
     }
 
     void Update()
     {
+        // FIX: si el componente está deshabilitado este Update no corre,
+        // así que no hace falta ningún guard extra aquí.
+        // El NPC hace pm.enabled = false para bloquearnos.
         movement.x = Input.GetAxisRaw("Horizontal");
         movement.y = Input.GetAxisRaw("Vertical");
         movement = movement.normalized;
 
+        ActualizarSlowdown();
         ActualizarAnimacion();
         ActualizarSorting();
     }
 
-    // Más abajo en pantalla (Y menor) = más al FRENTE = sorting mayor
+    void ActualizarSlowdown()
+    {
+        if (!enSlowdown) return;
+
+        timerSlowdown -= Time.deltaTime;
+        if (timerSlowdown <= 0f)
+        {
+            enSlowdown = false;
+            moveSpeed  = moveSpeedBase;
+        }
+    }
+
+    public void AplicarSlowdown(float factor, float duracion)
+    {
+        // Si ya había un slowdown activo, resetear primero
+        if (enSlowdown)
+            moveSpeed = moveSpeedBase;
+
+        enSlowdown    = true;
+        timerSlowdown = duracion;
+        moveSpeed     = moveSpeedBase * factor;
+    }
+
     void ActualizarSorting()
     {
         if (sr == null) return;
@@ -44,6 +74,8 @@ public class PlayerMovement : MonoBehaviour
 
     void ActualizarAnimacion()
     {
+        if (animator == null) return;
+
         string nuevaAnim = "Idle";
 
         if (movement.magnitude > 0.1f)
@@ -63,6 +95,10 @@ public class PlayerMovement : MonoBehaviour
 
     void FixedUpdate()
     {
+        // FIX: cuando el NPC pone rbJugador.bodyType = Kinematic,
+        // MovePosition aún funciona (es lo que usa el NPC para arrastrarte).
+        // Cuando el componente está disabled, este FixedUpdate NO corre,
+        // así que no hay conflicto con el arrastre del NPC.
         rb.MovePosition(rb.position + movement * moveSpeed * Time.fixedDeltaTime);
     }
 }
