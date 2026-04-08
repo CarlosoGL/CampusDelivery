@@ -19,7 +19,7 @@ public class Lorena : MonoBehaviour
     public float radioSalon = 4.2f;
 
     [Tooltip("Límite inferior Y → aquí toca la mesa y se queda POR ENCIMA (ajusta si quieres más cerca)")]
-    public float minYPatrulla = -15.8f;   // ← Este es el que hace que "toque" la mesa
+    public float minYPatrulla = -15.8f;
 
     [Tooltip("Límite superior Y (pared de arriba)")]
     public float maxYPatrulla = -9.5f;
@@ -64,12 +64,22 @@ public class Lorena : MonoBehaviour
 
     private Rigidbody2D rb;
     private Animator animator;
-    private SpriteRenderer spriteRenderer;   // ← para que aparezca POR ENCIMA visualmente
+    private SpriteRenderer spriteRenderer;
     private Vector2 destinoActual;
     private bool moviendose = false;
     private float timerSiguientePedido = 0f;
     private int dineroTotal = 0;
     private string animActual = "";
+
+    // =============================================
+    // === SISTEMA DE ENTREGAS (AGREGADO) ===
+    // =============================================
+    private bool pedidoActivo = false;
+    private string pedidoActual = "";
+    private float tiempoEntregaRestante = 0f;
+
+    // Referencia al DeliveryManager
+    public DeliveryManager deliveryManager;
 
     void Start()
     {
@@ -77,7 +87,6 @@ public class Lorena : MonoBehaviour
         animator = GetComponent<Animator>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
 
-        // SpriteRenderer para orden de dibujo (pase por encima visual)
         spriteRenderer = GetComponent<SpriteRenderer>();
         if (spriteRenderer == null) spriteRenderer = GetComponentInChildren<SpriteRenderer>();
 
@@ -107,10 +116,9 @@ public class Lorena : MonoBehaviour
                 break;
         }
 
-        // === ORDEN DE DIBUJO PARA QUE PASE POR ENCIMA VISUALMENTE ===
+        // Orden de dibujo para que pase por encima
         if (spriteRenderer != null)
         {
-            // Cuanto más abajo (menor Y), más adelante se dibuja (como los otros personajes)
             spriteRenderer.sortingOrder = Mathf.RoundToInt(-transform.position.y * 100f);
         }
     }
@@ -133,16 +141,11 @@ public class Lorena : MonoBehaviour
             rb.linearVelocity = Vector2.zero;
         }
 
-        // === CLAMP DURO DE POSICIÓN ===
-        // Esto es lo que RESPETA la mesa: toca la mesa y se queda POR ENCIMA
         Vector2 pos = rb.position;
         pos.y = Mathf.Clamp(pos.y, minYPatrulla, maxYPatrulla);
         rb.position = pos;
     }
 
-    // ─────────────────────────────────────────
-    // PATRULLA DENTRO DEL SALÓN (FORZADA POR ENCIMA)
-    // ─────────────────────────────────────────
     void IniciarCaminataEnSalon()
     {
         estadoActual = Estado.CaminandoEnSalon;
@@ -175,14 +178,9 @@ public class Lorena : MonoBehaviour
         );
 
         destinoActual = salonCentro + offset;
-
-        // Clamp también en los destinos
         destinoActual.y = Mathf.Clamp(destinoActual.y, minYPatrulla, maxYPatrulla);
     }
 
-    // ─────────────────────────────────────────
-    // PEDIR COMIDA
-    // ─────────────────────────────────────────
     void IniciarPidiendoComida()
     {
         estadoActual = Estado.PidiendoComida;
@@ -208,9 +206,6 @@ public class Lorena : MonoBehaviour
         IniciarCaminataEnSalon();
     }
 
-    // ─────────────────────────────────────────
-    // ANIMACIÓN
-    // ─────────────────────────────────────────
     void ActualizarAnimacion(Vector2 dir)
     {
         if (animator == null) return;
@@ -234,5 +229,62 @@ public class Lorena : MonoBehaviour
     {
         Gizmos.color = Color.green;
         Gizmos.DrawWireSphere(salonCentro, radioSalon);
+    }
+
+    // =============================================
+    // === SISTEMA DE ENTREGAS (AGREGADO) ===
+    // =============================================
+
+    public void RecibirPedido(string nombrePedido, float tiempoLimite)
+    {
+        if (pedidoActivo) return;
+
+        pedidoActivo = true;
+        pedidoActual = nombrePedido;
+        tiempoEntregaRestante = tiempoLimite;
+
+        Debug.Log($"<color=yellow>Lorena: ¡Nuevo pedido! {nombrePedido} - Tienes {tiempoLimite} segundos</color>");
+
+        if (!string.IsNullOrEmpty(Lorena_Pedir))
+            animator.Play(Lorena_Pedir);
+    }
+
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        if (other.CompareTag("Player") && pedidoActivo)
+        {
+            if (deliveryManager != null)
+            {
+                deliveryManager.CompletarEntregaConLorena();
+            }
+            else
+            {
+                Debug.LogWarning("Lorena: No tengo referencia al DeliveryManager");
+            }
+        }
+    }
+
+    public void ActualizarTimerPedido(float deltaTime)
+    {
+        if (!pedidoActivo) return;
+
+        tiempoEntregaRestante -= deltaTime;
+
+        if (tiempoEntregaRestante <= 0f)
+        {
+            FallarPedido();
+        }
+    }
+
+    private void FallarPedido()
+    {
+        pedidoActivo = false;
+        Debug.Log("<color=red>Lorena: Se te acabó el tiempo del pedido...</color>");
+        IniciarCaminataEnSalon();
+    }
+
+    public bool TienePedidoActivo()
+    {
+        return pedidoActivo;
     }
 }

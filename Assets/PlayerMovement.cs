@@ -18,6 +18,11 @@ public class PlayerMovement : MonoBehaviour
     const float SORT_SCALE = 10f;
     const int   SORT_BASE  = 300;
 
+    // =============================================
+    // === SISTEMA DE ENTREGAS (AGREGADO) ===
+    // =============================================
+    private bool tieneEntregaActiva = false;
+
     void Start()
     {
         rb       = GetComponent<Rigidbody2D>();
@@ -31,9 +36,6 @@ public class PlayerMovement : MonoBehaviour
 
     void Update()
     {
-        // FIX: si el componente está deshabilitado este Update no corre,
-        // así que no hace falta ningún guard extra aquí.
-        // El NPC hace pm.enabled = false para bloquearnos.
         movement.x = Input.GetAxisRaw("Horizontal");
         movement.y = Input.GetAxisRaw("Vertical");
         movement = movement.normalized;
@@ -57,7 +59,6 @@ public class PlayerMovement : MonoBehaviour
 
     public void AplicarSlowdown(float factor, float duracion)
     {
-        // Si ya había un slowdown activo, resetear primero
         if (enSlowdown)
             moveSpeed = moveSpeedBase;
 
@@ -95,10 +96,35 @@ public class PlayerMovement : MonoBehaviour
 
     void FixedUpdate()
     {
-        // FIX: cuando el NPC pone rbJugador.bodyType = Kinematic,
-        // MovePosition aún funciona (es lo que usa el NPC para arrastrarte).
-        // Cuando el componente está disabled, este FixedUpdate NO corre,
-        // así que no hay conflicto con el arrastre del NPC.
         rb.MovePosition(rb.position + movement * moveSpeed * Time.fixedDeltaTime);
+    }
+
+    // =============================================
+    // === SISTEMA DE ENTREGAS (AGREGADO) ===
+    // =============================================
+
+    // Método que llama DeliveryManager cuando Shelby toca a Lorena
+    public void CompletarEntrega()
+    {
+        if (!tieneEntregaActiva) return;
+
+        if (DeliveryManager.Instance != null)
+        {
+            DeliveryManager.Instance.CompletarEntregaConLorena();
+        }
+
+        tieneEntregaActiva = false;
+    }
+
+    // Método que usa DeliveryManager para activar el pedido
+    public void ActivarEntrega()
+    {
+        tieneEntregaActiva = true;
+    }
+
+    // Método para que DeliveryManager pueda saber la posición del jugador
+    public Vector2 ObtenerPosicion()
+    {
+        return rb != null ? rb.position : (Vector2)transform.position;
     }
 }
