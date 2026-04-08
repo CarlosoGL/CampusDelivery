@@ -527,9 +527,9 @@ public class ElPelon : MonoBehaviour
         if (dir.magnitude < 0.01f)
             nueva = "Idle";
         else if (Mathf.Abs(dir.x) >= Mathf.Abs(dir.y))
-            nueva = dir.x > 0 ? "WalkRight" : "WalkLeft";
+            nueva = dir.x > 0 ? "WalkRighta" : "WalkLeftelon";
         else
-            nueva = dir.y > 0 ? "WalkUp" : "WalkDown";
+            nueva = dir.y > 0 ? "WalkUpaq" : "WalkDownawe";
 
         if (nueva != animActual)
         {

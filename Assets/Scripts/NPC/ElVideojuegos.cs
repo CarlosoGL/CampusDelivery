@@ -2,7 +2,7 @@ using UnityEngine;
 using System.Collections.Generic;
 
 // ══════════════════════════════════════════════════════
-//  EL VIDEOJUEGOS  v8.2 - CORREGIDO (Animator + Rutina)
+// EL VIDEOJUEGOS v8.5 - FIX PERSECUCIÓN NORMAL (modo rutinario)
 // ══════════════════════════════════════════════════════
 public class ElVideojuegos : MonoBehaviour
 {
@@ -66,7 +66,6 @@ public class ElVideojuegos : MonoBehaviour
     float proxDesesTiempo = 0f;
 
     Queue<Vector2> rutaActual = new Queue<Vector2>();
-
     Vector2 ultimoPuntoConocido;
     List<Vector2> puntosBusqueda = new List<Vector2>();
     int indiceBusqueda = 0;
@@ -76,7 +75,6 @@ public class ElVideojuegos : MonoBehaviour
     List<(int idx, bool norte)> salonesARevisar = new List<(int, bool)>();
     int indiceSalonDeses = 0;
     bool faseInicialDeses = true;
-    Vector2 ultimoDestinoDesesFase1 = Vector2.zero;
 
     Vector2 destinoActual = Vector2.zero;
     float speedActual = 0f;
@@ -117,21 +115,16 @@ public class ElVideojuegos : MonoBehaviour
             rbJugador = goJ.GetComponent<Rigidbody2D>();
             pmJugador = goJ.GetComponent<PlayerMovement>();
         }
+        else
+        {
+            Debug.LogError("No se encontró al jugador con tag: " + tagJugador);
+        }
 
-        // Inicializar salones
         for (int i = 0; i < 8; i++)
         {
             float sx = xIzq + 1f + SAL_W * i + SAL_W / 2f;
-            salonesNorte[i] = new PuntoSalon
-            {
-                centro = new Vector2(sx, Y_NORTE),
-                puerta = new Vector2(sx, Y_DIV_N + OFFSET_PUERTA)
-            };
-            salonesSur[i] = new PuntoSalon
-            {
-                centro = new Vector2(sx, Y_SUR),
-                puerta = new Vector2(sx, Y_DIV_S - OFFSET_PUERTA)
-            };
+            salonesNorte[i] = new PuntoSalon { centro = new Vector2(sx, Y_NORTE), puerta = new Vector2(sx, Y_DIV_N + OFFSET_PUERTA) };
+            salonesSur[i]   = new PuntoSalon { centro = new Vector2(sx, Y_SUR),   puerta = new Vector2(sx, Y_DIV_S - OFFSET_PUERTA) };
         }
 
         if (jugador != null) ultimoPuntoConocido = jugador.position;
@@ -159,12 +152,12 @@ public class ElVideojuegos : MonoBehaviour
 
         switch (estadoActual)
         {
-            case Estado.Esperando:     LogicaEspera();      if (JugadorDetectado()) IniciarPersecucion(); break;
-            case Estado.Ruta:          LogicaRuta();        if (JugadorDetectado()) IniciarPersecucion(); break;
-            case Estado.Persiguiendo:  LogicaPersecucion(); break;
-            case Estado.Buscando:      LogicaBusqueda();    if (JugadorDetectado()) IniciarPersecucion(); break;
-            case Estado.Desesperado:   LogicaDesesperado(); break;
-            case Estado.Atrapado:      LogicaEncierro();    break;
+            case Estado.Esperando: LogicaEspera(); if (JugadorDetectado()) IniciarPersecucion(); break;
+            case Estado.Ruta: LogicaRuta(); if (JugadorDetectado()) IniciarPersecucion(); break;
+            case Estado.Persiguiendo: LogicaPersecucion(); break;
+            case Estado.Buscando: LogicaBusqueda(); if (JugadorDetectado()) IniciarPersecucion(); break;
+            case Estado.Desesperado: LogicaDesesperado(); break;
+            case Estado.Atrapado: LogicaEncierro(); break;
         }
 
         ActualizarSorting();
@@ -190,7 +183,8 @@ public class ElVideojuegos : MonoBehaviour
         salonesARevisar = todos;
         indiceSalonDeses = 0;
         faseInicialDeses = true;
-        ultimoDestinoDesesFase1 = ultimoPuntoConocido;
+        ultimoPuntoConocido = jugador != null ? (Vector2)jugador.position : rb.position;
+
         SetDestino(ultimoPuntoConocido, velDesesperada);
     }
 
@@ -208,7 +202,7 @@ public class ElVideojuegos : MonoBehaviour
 
         if (faseInicialDeses)
         {
-            if (Vector2.Distance(rb.position, ultimoPuntoConocido) <= distanciaLlegada * 3f)
+            if (Vector2.Distance(rb.position, ultimoPuntoConocido) <= distanciaLlegada * 2.5f)
             {
                 faseInicialDeses = false;
                 IrSiguienteSalonDeses();
@@ -226,8 +220,8 @@ public class ElVideojuegos : MonoBehaviour
         if (indiceSalonDeses >= salonesARevisar.Count)
         {
             faseInicialDeses = true;
-            SetDestino(ultimoPuntoConocido, velDesesperada);
             indiceSalonDeses = 0;
+            SetDestino(ultimoPuntoConocido, velDesesperada);
         }
         else
         {
@@ -324,8 +318,6 @@ public class ElVideojuegos : MonoBehaviour
     {
         var validos = SalonesValidos();
         validos.RemoveAll(v => v.idx == salonIdx && v.norte == salonNorte);
-        if (validos.Count == 0) { IniciarEspera(); return; }
-
         var dest = validos[Random.Range(0, validos.Count)];
 
         Vector2 puertaOrigen = salonNorte ? salonesNorte[salonIdx].puerta : salonesSur[salonIdx].puerta;
@@ -333,8 +325,8 @@ public class ElVideojuegos : MonoBehaviour
         Vector2 centroDestino = dest.norte ? salonesNorte[dest.idx].centro : salonesSur[dest.idx].centro;
         Vector2 puertaDestino = dest.norte ? salonesNorte[dest.idx].puerta : salonesSur[dest.idx].puerta;
         Vector2 pasilloDestino = new Vector2(puertaDestino.x, Y_PASILLO);
-        Vector2 entradaDestino = dest.norte ? 
-            new Vector2(puertaDestino.x, Y_DIV_N - OFFSET_PUERTA) : 
+        Vector2 entradaDestino = dest.norte ?
+            new Vector2(puertaDestino.x, Y_DIV_N - OFFSET_PUERTA) :
             new Vector2(puertaDestino.x, Y_DIV_S + OFFSET_PUERTA);
 
         rutaActual.Clear();
@@ -368,7 +360,7 @@ public class ElVideojuegos : MonoBehaviour
         }
     }
 
-    // ==================== PERSECUCIÓN Y BÚSQUEDA (sin cambios importantes) ====================
+    // ==================== PERSECUCIÓN ====================
     void IniciarPersecucion()
     {
         estadoActual = Estado.Persiguiendo;
@@ -381,17 +373,11 @@ public class ElVideojuegos : MonoBehaviour
         if (jugador == null) return;
 
         float velUsar = (estadoAntesDeses == Estado.Desesperado && timerDuraDeses > 0) ? velDesesperada : velPersecucion;
-
         bool loVe = JugadorDetectado() || JugadorDetectadoDeses();
+
         if (loVe) ultimoPuntoConocido = jugador.position;
 
-        float dist = Vector2.Distance(rb.position, jugador.position);
-        if (dist < distanciaLlegada + 0.3f)
-        {
-            Atrapar();
-            return;
-        }
-
+        // No hacemos chequeo de distancia aquí (lo movimos a FixedUpdate para mayor precisión)
         if (loVe)
             SetDestino(jugador.position, velUsar);
         else
@@ -462,12 +448,18 @@ public class ElVideojuegos : MonoBehaviour
         ElegirSiguienteSalonYRuta();
     }
 
-    // ==================== ATRAPAR Y ENCIERRO (sin cambios) ====================
-    void Atrapar() { /* mismo código que tenías */ 
-        // ... (lo dejo igual porque funciona)
+    // ==================== ATRAPAR ====================
+    void Atrapar()
+    {
         MusicaManager.Instancia?.TerminarPersecucion();
         timerDuraDeses = 0f;
         estadoAntesDeses = Estado.Esperando;
+
+        estadoActual = Estado.Atrapado;
+        moviendose = false;
+        destinoActual = rb.position;   // evitar movimiento residual
+
+        if (rb != null) rb.linearVelocity = Vector2.zero;
 
         if (rbJugador != null)
         {
@@ -476,17 +468,12 @@ public class ElVideojuegos : MonoBehaviour
             rbJugador.bodyType = RigidbodyType2D.Kinematic;
         }
 
-        if (rb != null)
-        {
-            rb.linearVelocity = Vector2.zero;
-            moviendose = false;
-        }
-
         if (pmJugador != null) pmJugador.enabled = false;
 
         GameManager gm = FindObjectOfType<GameManager>();
         if (gm != null) gm.AplicarCastigo(castigo);
 
+        // Teletransportar jugador al salón más cercano
         float menorD = float.MaxValue;
         for (int i = 0; i < 8; i++)
         {
@@ -530,7 +517,6 @@ public class ElVideojuegos : MonoBehaviour
                 pmJugador.enabled = true;
                 pmJugador.AplicarSlowdown(factorSlowdown, tiempoSlowdown);
             }
-
             ElegirProximoDeses();
             ElegirSiguienteSalonYRuta();
         }
@@ -539,6 +525,17 @@ public class ElVideojuegos : MonoBehaviour
     // ==================== MOVIMIENTO ====================
     void FixedUpdate()
     {
+        // CHEQUEO DE ATRAPAR EN FIXEDUPDATE (para modo normal y desesperado)
+        if (estadoActual == Estado.Persiguiendo && jugador != null)
+        {
+            float dist = Vector2.Distance(rb.position, jugador.position);
+            if (dist < distanciaLlegada + 0.9f)   // tolerancia generosa
+            {
+                Atrapar();
+                return;
+            }
+        }
+
         if (!moviendose || rb == null) return;
 
         Vector2 nuevaPos = Vector2.MoveTowards(rb.position, destinoActual, speedActual * Time.fixedDeltaTime);
@@ -565,7 +562,6 @@ public class ElVideojuegos : MonoBehaviour
         }
     }
 
-    // ==================== ANIMACIÓN - AQUÍ ESTÁ EL FIX ====================
     void ActualizarAnimacion(Vector2 dir)
     {
         if (animator == null) return;
@@ -578,7 +574,7 @@ public class ElVideojuegos : MonoBehaviour
         if (nueva != animActual)
         {
             animActual = nueva;
-            animator.Play(nueva, 0);        // ←←← ESTO ES EL FIX (capa 0)
+            animator.Play(nueva);
         }
     }
 
@@ -599,4 +595,6 @@ public class ElVideojuegos : MonoBehaviour
             }
         return lista;
     }
+
+    void OnDrawGizmos() { }
 }
