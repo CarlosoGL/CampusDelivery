@@ -609,6 +609,6 @@ public class ElPelon : MonoBehaviour
             Gizmos.DrawLine(
                 center + new Vector3(Mathf.Cos(a1), Mathf.Sin(a1)) * radius,
                 center + new Vector3(Mathf.Cos(a2), Mathf.Sin(a2)) * radius);
-        }
+        }//comentario
     }
 }
