@@ -2,13 +2,16 @@ using UnityEngine;
 using System.Collections.Generic;
 
 // ══════════════════════════════════════════════════════
-//  EL VIDEOJUEGOS  v4
-//  FIXES:
-//  - Jugador ya no se duplica/copia movimientos del NPC
-//  - Arrastre durante YendoAEncerrar usa Rigidbody2D del jugador
-//  - Encierro fija al jugador via su Rigidbody2D (no transform directo)
-//  - Colisiones: velocidad máxima reducida en pasillos, 
-//    Continuous Collision Detection se fuerza por código
+//  EL VIDEOJUEGOS  v5
+//  FIXES v5:
+//  - BUG #1: ultimoPuntoConocido ya NO se actualiza cada frame en Update().
+//            Solo se actualiza cuando realmente lo detecta (en LogicaPersecucion y Desesperado).
+//            Esto evitaba que el NPC "copiara" movimientos del jugador.
+//  - BUG #2: SetDestino ya NO recalcula la animacion cuando el NPC esta muy cerca
+//            del destino (< 0.3f). Esto evita el flickering/animacion caminando de lado.
+//  - BUG #3: velUsar en LogicaPersecucion ya NO usa timerDuraDeses para determinar
+//            velocidad fuera del modo desesperado. Ahora solo usa velDesesperada si
+//            el estado anterior FUE desesperado y el timer aun esta activo.
 // ══════════════════════════════════════════════════════
 public class ElVideojuegos : MonoBehaviour
 {
@@ -104,8 +107,8 @@ public class ElVideojuegos : MonoBehaviour
     SpriteRenderer sr;
     Animator       animator;
     Transform      jugador;
-    Rigidbody2D    rbJugador;       // cacheado una vez
-    PlayerMovement pmJugador;       // cacheado una vez
+    Rigidbody2D    rbJugador;
+    PlayerMovement pmJugador;
 
     void Start()
     {
@@ -115,7 +118,6 @@ public class ElVideojuegos : MonoBehaviour
         if (sr == null)       sr       = GetComponentInChildren<SpriteRenderer>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
 
-        // FIX colisiones: forzar detección continua en el NPC
         if (rb != null)
         {
             rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
@@ -128,17 +130,17 @@ public class ElVideojuegos : MonoBehaviour
             jugador    = goJ.transform;
             rbJugador  = goJ.GetComponent<Rigidbody2D>();
             pmJugador  = goJ.GetComponent<PlayerMovement>();
-            Debug.Log("NPC encontró jugador: " + goJ.name); 
+            Debug.Log("NPC encontró jugador: " + goJ.name);
 
-            // FIX colisiones: también continuo en el jugador
             if (rbJugador != null)
             {
                 rbJugador.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
                 rbJugador.interpolation          = RigidbodyInterpolation2D.Interpolate;
             }
-        }else{
-                Debug.LogError("NPC NO encontró ningún objeto con tag: " + tagJugador); // Y ESTA
-
+        }
+        else
+        {
+            Debug.LogError("NPC NO encontró ningún objeto con tag: " + tagJugador);
         }
 
         for (int i = 0; i < 8; i++)
@@ -156,6 +158,10 @@ public class ElVideojuegos : MonoBehaviour
             };
         }
 
+        // Inicializar ultimoPuntoConocido con posicion del jugador al arrancar
+        if (jugador != null)
+            ultimoPuntoConocido = jugador.position;
+
         ElegirSalonInicial();
         ElegirProximoDeses();
     }
@@ -170,8 +176,12 @@ public class ElVideojuegos : MonoBehaviour
     {
         enPasillo = Mathf.Abs(transform.position.y) < 8.5f;
 
-        if (jugador != null)
-            ultimoPuntoConocido = jugador.position;
+        // ✅ FIX BUG #1: Se ELIMINÓ la línea que actualizaba ultimoPuntoConocido SIEMPRE.
+        // Antes: if (jugador != null) ultimoPuntoConocido = jugador.position;
+        // Eso hacía que el NPC SIEMPRE supiera dónde estás, incluso sin verte,
+        // lo que causaba que "copiara" tus movimientos y nunca perdiera el rastro.
+        // Ahora solo se actualiza cuando realmente lo detecta (dentro de LogicaPersecucion
+        // y LogicaDesesperado).
 
         if (estadoActual != Estado.Desesperado &&
             estadoActual != Estado.YendoAEncerrar &&
@@ -244,6 +254,8 @@ public class ElVideojuegos : MonoBehaviour
 
         if (JugadorDetectadoDeses())
         {
+            // Actualizar posición conocida antes de cambiar estado
+            if (jugador != null) ultimoPuntoConocido = jugador.position;
             IniciarPersecucionDeses();
             return;
         }
@@ -256,8 +268,12 @@ public class ElVideojuegos : MonoBehaviour
 
         if (faseInicialDeses)
         {
+            // En modo desesperado SÍ actualizamos ultimoPuntoConocido mientras busca
             if (jugador != null)
+            {
+                ultimoPuntoConocido = jugador.position;
                 SetDestino(jugador.position, velDesesperada);
+            }
 
             if (Vector2.Distance(rb.position, ultimoPuntoConocido) <= distanciaLlegada * 2f)
             {
@@ -449,11 +465,17 @@ public class ElVideojuegos : MonoBehaviour
     {
         if (jugador == null) return;
 
-        float velUsar = (timerDuraDeses > 0f && timerDuraDeses < duracionDeses)
+        // ✅ FIX BUG #3: Solo usa velDesesperada si el estado ANTERIOR fue Desesperado
+        // y el timer aun esta dentro del rango. En persecucion normal usa velPersecucion.
+        float velUsar = (estadoAntesDeses == Estado.Desesperado &&
+                         timerDuraDeses > 0f &&
+                         timerDuraDeses < duracionDeses)
             ? velDesesperada
             : velPersecucion;
 
         bool loVe = JugadorDetectado() || JugadorDetectadoDeses();
+
+        // ✅ FIX BUG #1 (parte 2): Solo actualiza ultimoPuntoConocido cuando lo ve
         if (loVe) ultimoPuntoConocido = jugador.position;
 
         float dist = Vector2.Distance(rb.position, jugador.position);
@@ -539,14 +561,14 @@ public class ElVideojuegos : MonoBehaviour
     void Atrapar()
     {
         MusicaManager.Instancia?.TerminarPersecucion();
-        timerDuraDeses = 0f;
+        timerDuraDeses   = 0f;
+        estadoAntesDeses = Estado.Esperando; // resetear para que no arrastre velDesesperada
 
-        // FIX: deshabilitar PlayerMovement Y congelar el rb del jugador
         if (pmJugador != null) pmJugador.enabled = false;
         if (rbJugador != null)
         {
             rbJugador.linearVelocity = Vector2.zero;
-            rbJugador.bodyType       = RigidbodyType2D.Kinematic; // evita que física lo mueva
+            rbJugador.bodyType       = RigidbodyType2D.Kinematic;
         }
 
         GameManager gm = FindObjectOfType<GameManager>();
@@ -554,10 +576,8 @@ public class ElVideojuegos : MonoBehaviour
 
         if (rb != null) rb.linearVelocity = Vector2.zero;
 
-        // Calcular offset de arrastre (lado derecho o izquierdo según dirección)
         offsetArrastre = new Vector2(direccionActual.x >= 0 ? 1.2f : -1.2f, 0f);
 
-        // Elegir salón más cercano
         float menorD = float.MaxValue;
         int   salidx = salonIdx;
         bool  salNrt = salonNorte;
@@ -575,12 +595,9 @@ public class ElVideojuegos : MonoBehaviour
 
     // ─────────────────────────────────────────
     //  YENDO AL SALÓN A ENCERRAR
-    //  FIX: arrastre via MovePosition del rb del jugador,
-    //       nunca via transform.position directo
     // ─────────────────────────────────────────
     void LogicaYendoAEncerrar()
     {
-        // El arrastre real se hace en FixedUpdate para respetar física
         if (Vector2.Distance(rb.position, destinoActual) < distanciaLlegada)
         {
             if (rutaActual.Count > 0)
@@ -603,7 +620,6 @@ public class ElVideojuegos : MonoBehaviour
         if (rb != null) rb.linearVelocity = Vector2.zero;
         ActualizarAnimacion(Vector2.zero);
 
-        // Colocar jugador via Rigidbody2D, no transform
         Vector2 centroSalon = salonNorte ? salonesNorte[salonIdx].centro : salonesSur[salonIdx].centro;
         Vector2 posJugador  = centroSalon + new Vector2(1.5f, 0f);
         if (rbJugador != null)
@@ -623,12 +639,10 @@ public class ElVideojuegos : MonoBehaviour
         ActualizarAnimacion(Vector2.zero);
         timerEncierroActual += Time.deltaTime;
 
-        // Fin del encierro: soltar jugador con slowdown
         if (timerEncierroActual >= tiempoEncierro)
         {
             jugadorFijoEnSalon = false;
 
-            // Restaurar tipo de cuerpo del jugador
             if (rbJugador != null)
                 rbJugador.bodyType = RigidbodyType2D.Dynamic;
 
@@ -645,15 +659,12 @@ public class ElVideojuegos : MonoBehaviour
 
     // ─────────────────────────────────────────
     //  FIXED UPDATE
-    //  FIX: arrastre del jugador aquí, junto al movimiento del NPC
     // ─────────────────────────────────────────
     void FixedUpdate()
     {
-        // Mover NPC
         if (moviendose && rb != null)
             rb.MovePosition(Vector2.MoveTowards(rb.position, destinoActual, speedActual * Time.fixedDeltaTime));
 
-        // Arrastrar jugador mientras va al salón
         if (estadoActual == Estado.YendoAEncerrar && rbJugador != null)
         {
             Vector2 destJugador = rb.position + offsetArrastre;
@@ -661,7 +672,6 @@ public class ElVideojuegos : MonoBehaviour
             rbJugador.linearVelocity = Vector2.zero;
         }
 
-        // Mantener jugador fijo durante el encierro
         if (estadoActual == Estado.Atrapado && jugadorFijoEnSalon && rbJugador != null)
         {
             Vector2 centroSalon = salonNorte ? salonesNorte[salonIdx].centro : salonesSur[salonIdx].centro;
@@ -687,8 +697,17 @@ public class ElVideojuegos : MonoBehaviour
         destinoActual = destino;
         speedActual   = speed;
         moviendose    = true;
-        Vector2 dir = (destino - rb.position).normalized;
-        if (dir.magnitude > 0.01f) { direccionActual = dir; ActualizarAnimacion(dir); }
+        Vector2 dir  = (destino - rb.position).normalized;
+        float   dist = Vector2.Distance(rb.position, destino);
+
+        // ✅ FIX BUG #2: Solo actualiza la direccion/animacion si esta suficientemente lejos.
+        // Antes recalculaba cada frame aunque estuviera a 0.01f del destino,
+        // causando que la animacion flippeara entre WalkLeft/WalkDown (caminaba de lado).
+        if (dir.magnitude > 0.01f && dist > 0.3f)
+        {
+            direccionActual = dir;
+            ActualizarAnimacion(dir);
+        }
     }
 
     void ActualizarAnimacion(Vector2 dir)
