@@ -1,24 +1,24 @@
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;                    // ← Necesario para TextMeshPro
 
 // ══════════════════════════════════════════════════════
-// LORENA v5.5 (COLISIONES RESPETADAS + PASE POR ENCIMA)
-// Ahora SÍ toca la mesa y se queda POR ENCIMA como los otros personajes.
-// No modifica el GeneradorEdificio (como pediste).
+// LORENA v5.6 - Versión Final Estable
+// Colisiones respetadas + Siempre por encima de la mesa
 // ══════════════════════════════════════════════════════
 public class Lorena : MonoBehaviour
 {
     // ─────────────────────────────────────────
-    // ZONA DEL SALÓN (ajustado exactamente a tu imagen)
+    // ZONA DEL SALÓN
     // ─────────────────────────────────────────
-    [Header("Zona del Salón (siempre POR ENCIMA de la mesa)")]
+    [Header("Zona del Salón")]
     [Tooltip("Centro del salón (ajustado para que toque la mesa desde arriba)")]
     public Vector2 salonCentro = new Vector2(25f, -13.0f);
 
     [Tooltip("Radio del área donde Lorena puede caminar")]
     public float radioSalon = 4.2f;
 
-    [Tooltip("Límite inferior Y → aquí toca la mesa y se queda POR ENCIMA (ajusta si quieres más cerca)")]
+    [Tooltip("Límite inferior Y (toca la mesa)")]
     public float minYPatrulla = -15.8f;
 
     [Tooltip("Límite superior Y (pared de arriba)")]
@@ -31,7 +31,7 @@ public class Lorena : MonoBehaviour
     public float velocidad = 1.8f;
 
     // ─────────────────────────────────────────
-    // PEDIDOS DE COMIDA
+    // PEDIDOS AUTOMÁTICOS
     // ─────────────────────────────────────────
     [Header("Pedidos de comida")]
     public int precioPorPedido = 20;
@@ -39,16 +39,16 @@ public class Lorena : MonoBehaviour
     public float tiempoEntrePedidos = 7f;
 
     // ─────────────────────────────────────────
-    // UI - CUADRO DE DINERO
+    // UI - DINERO (TextMeshPro)
     // ─────────────────────────────────────────
     [Header("UI Dinero")]
-    [Tooltip("Arrastra aquí el Text o TextMeshPro del Canvas")]
-    public Text dineroText;
+    [Tooltip("Arrastra aquí tu TextMeshPro del dinero")]
+    public TextMeshProUGUI dineroText;
 
     // ─────────────────────────────────────────
     // ANIMACIONES
     // ─────────────────────────────────────────
-    [Header("Animaciones - NOMBRES EXACTOS de tu Animator")]
+    [Header("Animaciones - NOMBRES EXACTOS del Animator")]
     public string Lorena_Idle = "Lorena_Idle";
     public string Lorena_WalkUp = "Lorena_WalkUp";
     public string Lorena_WalkDown = "Lorena_WalkDown";
@@ -65,6 +65,7 @@ public class Lorena : MonoBehaviour
     private Rigidbody2D rb;
     private Animator animator;
     private SpriteRenderer spriteRenderer;
+
     private Vector2 destinoActual;
     private bool moviendose = false;
     private float timerSiguientePedido = 0f;
@@ -72,13 +73,12 @@ public class Lorena : MonoBehaviour
     private string animActual = "";
 
     // =============================================
-    // === SISTEMA DE ENTREGAS (AGREGADO) ===
+    // SISTEMA DE ENTREGAS
     // =============================================
     private bool pedidoActivo = false;
     private string pedidoActual = "";
     private float tiempoEntregaRestante = 0f;
 
-    // Referencia al DeliveryManager
     public DeliveryManager deliveryManager;
 
     void Start()
@@ -90,6 +90,7 @@ public class Lorena : MonoBehaviour
         spriteRenderer = GetComponent<SpriteRenderer>();
         if (spriteRenderer == null) spriteRenderer = GetComponentInChildren<SpriteRenderer>();
 
+        // Configuración Rigidbody
         if (rb)
         {
             rb.bodyType = RigidbodyType2D.Dynamic;
@@ -100,6 +101,7 @@ public class Lorena : MonoBehaviour
 
         transform.position = new Vector3(salonCentro.x, salonCentro.y, 0f);
         timerSiguientePedido = 3f;
+
         IniciarCaminataEnSalon();
     }
 
@@ -107,16 +109,17 @@ public class Lorena : MonoBehaviour
     {
         timerSiguientePedido -= Time.deltaTime;
 
-        switch (estadoActual)
+        if (estadoActual == Estado.CaminandoEnSalon)
         {
-            case Estado.CaminandoEnSalon:
-                LogicaCaminataEnSalon();
-                break;
-            case Estado.PidiendoComida:
-                break;
+            if (timerSiguientePedido <= 0f)
+            {
+                IniciarPidiendoComida();
+                return;
+            }
+            LogicaCaminataEnSalon();
         }
 
-        // Orden de dibujo para que pase por encima
+        // Sorting Order (siempre por encima)
         if (spriteRenderer != null)
         {
             spriteRenderer.sortingOrder = Mathf.RoundToInt(-transform.position.y * 100f);
@@ -141,6 +144,7 @@ public class Lorena : MonoBehaviour
             rb.linearVelocity = Vector2.zero;
         }
 
+        // Clamp posición Y
         Vector2 pos = rb.position;
         pos.y = Mathf.Clamp(pos.y, minYPatrulla, maxYPatrulla);
         rb.position = pos;
@@ -155,12 +159,6 @@ public class Lorena : MonoBehaviour
 
     void LogicaCaminataEnSalon()
     {
-        if (timerSiguientePedido <= 0f)
-        {
-            IniciarPidiendoComida();
-            return;
-        }
-
         if (Vector2.Distance(rb.position, destinoActual) < 0.6f)
         {
             ElegirNuevoDestinoDentroDelSalon();
@@ -190,10 +188,11 @@ public class Lorena : MonoBehaviour
         Debug.Log("<color=cyan>Lorena: ¡Hola Shelby! ¿Me das comida por favor?</color>");
 
         dineroTotal += precioPorPedido;
-        if (dineroText != null) dineroText.text = "$" + dineroTotal.ToString();
+        if (dineroText != null)
+            dineroText.text = "$" + dineroTotal.ToString();
 
         if (!string.IsNullOrEmpty(Lorena_Pedir))
-            animator.Play(Lorena_Pedir);
+            animator.CrossFade(Lorena_Pedir, 0.1f);
         else
             ActualizarAnimacion(Vector2.zero);
 
@@ -210,18 +209,20 @@ public class Lorena : MonoBehaviour
     {
         if (animator == null) return;
 
-        string nueva;
-        if (dir.magnitude < 0.01f)
-            nueva = Lorena_Idle;
-        else if (Mathf.Abs(dir.x) >= Mathf.Abs(dir.y))
-            nueva = dir.x > 0 ? Lorena_WalkRight : Lorena_WalkLeft;
-        else
-            nueva = dir.y > 0 ? Lorena_WalkUp : Lorena_WalkDown;
+        string nueva = Lorena_Idle;
+
+        if (dir.magnitude > 0.01f)
+        {
+            if (Mathf.Abs(dir.x) >= Mathf.Abs(dir.y))
+                nueva = dir.x > 0 ? Lorena_WalkRight : Lorena_WalkLeft;
+            else
+                nueva = dir.y > 0 ? Lorena_WalkUp : Lorena_WalkDown;
+        }
 
         if (nueva != animActual)
         {
             animActual = nueva;
-            animator.Play(nueva);
+            animator.CrossFade(nueva, 0.1f);
         }
     }
 
@@ -232,7 +233,7 @@ public class Lorena : MonoBehaviour
     }
 
     // =============================================
-    // === SISTEMA DE ENTREGAS (AGREGADO) ===
+    // SISTEMA DE ENTREGAS
     // =============================================
 
     public void RecibirPedido(string nombrePedido, float tiempoLimite)
@@ -243,10 +244,14 @@ public class Lorena : MonoBehaviour
         pedidoActual = nombrePedido;
         tiempoEntregaRestante = tiempoLimite;
 
-        Debug.Log($"<color=yellow>Lorena: ¡Nuevo pedido! {nombrePedido} - Tienes {tiempoLimite} segundos</color>");
+        estadoActual = Estado.PidiendoComida;
+        moviendose = false;
+        rb.linearVelocity = Vector2.zero;
+
+        Debug.Log($"<color=yellow>Lorena: ¡Nuevo pedido! {nombrePedido} - {tiempoLimite} segundos</color>");
 
         if (!string.IsNullOrEmpty(Lorena_Pedir))
-            animator.Play(Lorena_Pedir);
+            animator.CrossFade(Lorena_Pedir, 0.1f);
     }
 
     private void OnTriggerEnter2D(Collider2D other)
@@ -256,12 +261,20 @@ public class Lorena : MonoBehaviour
             if (deliveryManager != null)
             {
                 deliveryManager.CompletarEntregaConLorena();
+                CompletarEntrega();           // ← Importante
             }
             else
             {
                 Debug.LogWarning("Lorena: No tengo referencia al DeliveryManager");
             }
         }
+    }
+
+    public void CompletarEntrega()
+    {
+        pedidoActivo = false;
+        Debug.Log("<color=green>Lorena: ¡Pedido entregado! Gracias ❤️</color>");
+        IniciarCaminataEnSalon();
     }
 
     public void ActualizarTimerPedido(float deltaTime)
